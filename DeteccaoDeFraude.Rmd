@@ -1,0 +1,135 @@
+---
+title: "Data Science Academy - Projeto com Feedback 01"
+author: "Henrique Jordão Figueiredo Alves"
+date: "07 Maio, 2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Projeto com Feedback 01 - Detecção de Fraudes no Tráfego de Cliques em Propagandas de Aplicações Mobile
+
+Este projeto tem como objetivo criar um algoritmo de aprendizagem de máquina que possa prever se um usuário fará o download de um aplicativo depois de clicar em um anúncio de aplicativo para dispositivos móveis.
+
+https://www.kaggle.com/c/talkingdata-adtracking-fraud-detection/data
+
+Para este projeto foi utilizado uma amostragem menor dos dados disponíveis.
+
+Ao testar o arquivo .R, favor modificar o diretório da pasta raiz do projeto para onde os arquivos do mesmo estão localizados em sua máquina.
+
+## Etapa 1: Carregando os dados
+
+```{r carregando}
+# Carregando os pacotes necessários para o projeto
+library(tidyr)
+library(lubridate)
+library(ggplot2)
+library(dplyr)
+
+dados <- read.csv("train_sample.csv")
+str(dados)
+head(dados)
+```
+
+## Etapa 2: Limpando os Dados
+
+```{r limpando}
+# Criando função para conversão de variáveis categóricas
+to.factors <- function(df, variables){
+  for (variable in variables){
+    df[[variable]] <- as.factor(df[[variable]])
+  }
+  return(df)
+}
+
+dados <- dados[,-7]
+
+# Separando Data e Hora
+dados <- separate(dados, click_time, c("Date","Time"), sep = ' ', remove = TRUE)
+
+# Variáveis do tipo fator
+categorical.vars <- c('is_attributed', 'device', 'os', 'channel', 'app', 'ip')
+
+# Convertendo as variáveis para o tipo fator (categórica)
+dados <- to.factors(df = dados, variables = categorical.vars)
+str(dados)
+```
+
+## Etapa 3: Análise Exploratória dos Dados
+
+```{r analisando}
+ip_freq <- as.data.frame(table(dados$ip))
+names(ip_freq) <- c("ip","freq")
+str(ip_freq)
+
+# Plot frequência de cliques por IP
+ip_freq %>% filter(freq >= 100) %>%
+ggplot(aes(x =ip, y = freq)) + geom_bar(stat = "identity") +
+  ylab("Número de Cliques") + xlab("IPs de Usuário") +
+  ggtitle("Frequência de Cliques por Usuário")
+
+# Criando vetor de IPs com maior suspeita de fraude (mais de 200 cliques)
+ip_susp <- ip_freq %>% filter(freq >= 200)
+ip_susp <- ip_susp$ip
+
+# Tabela de cliques por Ips suspeitos de acordo com a data
+dados_bydate <- dados %>% group_by(ip, Date) %>% summarise(Freq = n())
+dados_bydate <- dados_bydate %>% filter(ip %in% ip_susp)
+
+# Plot cliques de IPs suspeitos por data
+dados_bydate %>%
+  ggplot(aes(x = Date, y = Freq, group = ip, color = ip)) +
+  ylab("Número de Cliques") + xlab("Dia") +
+  geom_line() + geom_point() +
+  scale_y_continuous(breaks = seq(0, 300, by = 10)) +
+  ggtitle("Frequência de Cliques por dia")
+
+# Teste Qui-Quadrado
+
+chisq.test(dados$is_attributed, dados$ip)
+```
+
+## Etapa 4: Construindo Modelos Preditivos
+
+```{r previsao}
+# Excluindo Ips com menos de 50 cliques
+
+ip_freq <- ip_freq %>% filter(freq >= 50)
+dados <- dados %>% filter(ip %in% ip_freq$ip)
+str(dados)
+table(dados$is_attributed)
+
+# Modelo RandomForest
+set.seed(40)
+dados[,'index'] <- ifelse(runif(nrow(dados)) < 0.7,1,0)
+
+# Dados de treino e teste
+trainset <- dados[dados$index==1,]
+testset <- dados[dados$index==0,]
+
+# Obter o índice
+trainColNum <- grep('index', names(trainset))
+
+# Remover o índice dos datasets
+trainset <- trainset[,-trainColNum]
+testset <- testset[,-trainColNum]
+
+# Cria o modelo
+library(rpart)
+modelo_rf_v1 = rpart(is_attributed ~ ip, data = trainset, control = rpart.control(cp = .0005))
+
+# Previsões nos dados de teste
+tree_pred = predict(modelo_rf_v1, testset, type='class')
+
+# Percentual de previsões corretas com dataset de teste
+mean(tree_pred==testset$is_attributed)
+
+# Confusion Matrix
+table(tree_pred, testset$is_attributed)
+
+```
+
+## Fim
+## www.github.com/henryjordan
